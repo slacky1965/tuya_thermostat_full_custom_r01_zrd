@@ -215,7 +215,7 @@ class TLSRPGM:
 			self._port.flushInput()
 			self._port.reset_output_buffer()
 			self._port.reset_input_buffer()
-			self._port.timeout = 0.1
+			self._port.timeout = 0.25
 		except:
 			print('Error!')
 			return False
@@ -416,11 +416,20 @@ class TLSRPGM:
 		return data[4]
 	# Waiting for Flash to be ready
 	def WaitingFlashReady(self, count = 300):
+		cnt_err = 5
 		while count > 0:
 			data = self.command(struct.pack('<BBH', self.CMD_FLASH_GET_STATUS, 0, 0), 7)
 			if data == None or self.wcnt != 1:
-				print('\rError get Flash Status! (%d)' % self.err) 
-				return False
+				# a short/late serial read is usually a one-off USB glitch: retry
+				# the idempotent status poll before giving up (long writes hit
+				# such hiccups sooner or later)
+				cnt_err -= 1
+				if cnt_err == 0:
+					print('\rError get Flash Status! (%d)' % self.err)
+					return False
+				time.sleep(0.05)
+				continue
+			cnt_err = 5
 			if (data[4] & 0x01) == 0:
 				#print('Flash status 0x%02x, cnt %d' % (data[4], count))
 				return True
