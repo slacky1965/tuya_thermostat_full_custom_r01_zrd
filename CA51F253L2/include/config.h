@@ -1,0 +1,221 @@
+#ifndef CONFIG_H
+#define CONFIG_H
+/**************************************************************************************************/
+/* CONFIG.H - single place for all board/chip settings.                                           */
+/*                                                                                                */
+/* Section:                                                                                       */
+/*   1. Device identity: model string, firmware version, chip id                                  */
+/*   2. System clock source and frequency                                                         */
+/*   3. UART links: enable switches, baudrates, buffer sizes, pins                                */
+/*   4. GPIO map: full pin assignment of this board (reference)                                   */
+/*   5. Backlight PWM: channels, polarity, period, startup duty                                   */
+/*   6. REG-COM LED matrix: brightness, buffer size                                               */
+/*   7. Heating relay                                                                             */
+/*   8. NTC external switch                                                                       */
+/*   9. Optional code switches (ROM size)                                                         */
+/*                                                                                                */
+/* The vendor SFR/GPIO bit registers (ca51f2sfr.h, gpiodef_f2.h) stay in the                      */
+/* SDK headers; this file only holds project-level choices and the pin map.                       */
+/* Include config.h FIRST in every .c file, before module headers.                                */
+/**************************************************************************************************/
+
+#define FLASH_TOTAL_SIZE       (32UL * 1024UL)
+#define FLASH_DATA_SIZE        512
+#define FLASH_CODE_SIZE        32256
+#define FLASH_PADRD            0x7E
+#if (FLASH_CODE_SIZE + FLASH_DATA_SIZE != FLASH_TOTAL_SIZE) || \
+    (FLASH_PADRD * 256 != FLASH_CODE_SIZE)
+#error Flash layout constants are inconsistent
+#endif
+
+/*** 1. Device identity (reported via LNK_CMD_INFO link handshake) ********************************/
+/* Model string is sent without a terminator; keep it <= 16 chars so the                          */
+/* Info frame stays within LNK_INFO_MAX_LEN (see link_proto.h).                                   */
+#define DEVICE_MODEL        "osrctherm_r01" /* name, revision suffix _rNN                         */
+#define APP_VERSION         0x101           /* firmware version, BCD u16 BE                       */
+                                            /* (hi byte = major, lo byte = minor; 0x100 = v1.00)  */
+#define CHIP_ID             0x20A1          /* hardware chip ID (u16 BE), CACHIP                  */
+                                            /* 0x20A1 = CA51F253L2; exact ID in flash 0x2B area   */
+
+/*** 2. System clock ******************************************************************************/
+#define IRCH                0
+#define IRCL                1
+#define PLL                 2
+#define XOSCL               3
+
+#define SYSCLK_SRC          IRCH  /* chip system clock select                 */
+                                  /* (IRCH = 0, IRCL = 1, PLL = 2, XOSCL = 3) */
+#if (SYSCLK_SRC == PLL)
+    #define PLL_Multiple    6                          /* PLL multiplier    */
+    #define FOSC            (3686400L * PLL_Multiple)  /* synthesized clock */
+#else
+    #define FOSC            (3686400L)  /* IRCH clock */
+#endif
+
+/*** 3. UART links ********************************************************************************/
+/* UART1 = ZT3L/ZR link bus, TX = P6.6, RX = P6.7, 115200 8N1                                     */
+#define UART1_EN
+#define UART1_BAUTRATE      115200
+
+/* UART0 = debug console (polled TX P3.0/P3.1). UART2 = spare.                                    */
+/*#define UART0_EN*/  /* uncomment to enable UART0                                                */
+/*#define UART2_EN*/  /* uncomment to enable UART2                                                */
+/*#define PRINT_EN*/  /* vendor uart_printf() helper (UART0/1/2)                                  */
+
+#ifdef UART0_EN
+    #define UART0_BAUTRATE   115200
+#endif
+#ifdef UART2_EN
+    #define UART2_BAUTRATE   115200
+#endif
+#if SYSCLK_SRC == PLL
+    #define UART1_RELOAD_VALUE     0x03FA
+    #define UART0_RELOAD_FALLBACK  0xFFFA
+    #define UART2_RELOAD_FALLBACK  0x03FA
+#else
+    #define UART1_RELOAD_VALUE     0x03FF
+    #define UART0_RELOAD_FALLBACK  0xFFFF
+    #define UART2_RELOAD_FALLBACK  0x03FF
+#endif
+
+/* RX/TX ring buffer sizes (bytes each)                                                           */
+#define UART0_TX_BUF_SIZE   20
+#define UART0_RX_BUF_SIZE   100
+#define UART1_TX_BUF_SIZE   128
+#define UART1_RX_BUF_SIZE   100
+#define UART2_TX_BUF_SIZE   20
+#define UART2_RX_BUF_SIZE   100
+
+/*** 4. GPIO map (this board) *********************************************************************/
+/*                                                                                                */
+/* LED matrix (REG-COM, internal driver in LED mode):                                             */
+/*   COM0..COM7  = P0.0..P0.7 (pins 61..54), high sink current                                    */
+/*   SEG12..SEG22 = P6.2..P6.5 + P1.0..P1.6 (pins 34..44)                                         */
+/* Backlight PWM:                                                                                 */
+/*   P5.0/PWM0  = backlight of 4 touch keys                                                       */
+/*   P5.1/PWM1  = red strip                                                                       */
+/*   P5.2/PWM2  = white backlight of power (leaf) key                                             */
+/*   P5.3/PWM3  = green backlight                                                                 */
+/* Touch buttons (front panel, TK3..TK7):                                                         */
+/*   BTN_MENU  = TK3 = P3.7                                                                       */
+/*   BTN_CLOCK = TK4 = P3.6                                                                       */
+/*   BTN_POWER = TK5 = P3.3                                                                       */
+/*   BTN_UP    = TK6 = P3.2                                                                       */
+/*   BTN_DOWN  = TK7 = P4.7                                                                       */
+/* NTC sensors (ADC inputs, always powered; read on demand):                                      */
+/*   TEMP_INTERNAL = AD_CH[0] = P4.0 (chip pin 21)                                                */
+/*   TEMP_EXTERNAL = AD_CH[1] = P4.1 (chip pin 20)                                                */
+/* Heating relay:                                                                                 */
+/*   RELAY = P3.1 (chip pin 46), high = ON, low = OFF (see section 7)                             */
+/* UART0 debug: TX = P3.0, RX = P3.1 (polled)                                                     */
+/* UART1 link:  TX = P6.6, RX = P6.7                                                              */
+/* UART2 spare: TX = P6.1, RX = P6.0                                                              */
+
+/*** 5. Backlight PWM *****************************************************************************/
+#define PW_CH_EN            0x0F               /* bitmask: enable PWM0..PWM3           */
+#define PW_DIV              1843               /* PWM period divider                   */
+#define PW_TOG              0x0C               /* bitmask: active-low LEDs = PWM2,PWM3 */
+#define PW_DUTY             (PW_DIV * 5 / 10)  /* startup duty (50%)                   */
+
+/*** 6. REG-COM LED matrix ************************************************************************/
+#define LDRV_DEFAULT        7   /* startup display brightness, 0..7 */
+#define LED_BUF_N           36  /* shadow buffer words (SEG lines)  */
+
+/*** 7. Heating relay *****************************************************************************/
+/* Relay driver on P3.1 (chip pin 46; probed: R28 -> Q5 (0R link) -> J2.6 -> driver transistor      */
+/* on the power board; the board design has a 2nd unpopulated relay option on J2.5):                */
+/*   high level = relay ON, low level = relay OFF (polarity assumed from r02 - bench-check later).  */
+/* CONFLICTS on this board: P3.1 is also UART0_RX (ISP) and P3.0 (chip pin 47) is the LCD           */
+/* backlight control (R25 -> Q3 -> R26 -> backlight A). ISP runs with the firmware stopped          */
+/* (and the weak board is powered off the mains part while flashing), but UART_DEBUG=ON             */
+/* reconfigures BOTH pins to UART (debug_init) and breaks relay + backlight control.                */
+#define RELAY_PIN           P31
+#define RELAY_ON_LEVEL      1
+#define RELAY_OFF_LEVEL     0
+/* Control: symmetric hysteresis, heater ON when t <= SP - deadBand, OFF when     */
+/* t >= SP + deadBand. OFF is always immediate; the only time restriction is the  */
+/* minimum time spent OFF (anti-short-cycle start protection): the ON condition   */
+/* is ignored until the relay has been off for RELAY_OFF_WINDOW_SECS.             */
+#define RELAY_OFF_WINDOW_SECS 30
+
+/* Emergency cut-off ceiling = maxHeatSetpointLimit + ABS_MAX_DEADBAND + margin   */
+/* (c100). The margin is measured from the HIGHEST legal OFF point of the law     */
+/* (SP + deadBand <= maxHeatSetpointLimit + ABS_MAX_DEADBAND), so the cut-off     */
+/* never fires during normal operation - it only reacts to a genuine runaway.     */
+#define RELAY_TRIP_MARGIN_C100 100
+
+/* Economy mode (ZCL ProgrammingOperationMode bit 2): fixed control-only         */
+/* setpoint offset in c100, subtracted from the active setpoint BEFORE the       */
+/* [min..max] clamp, so Eco still respects the user limits. The stored setpoint  */
+/* and the schedule slots never change (data != policy). Placeholder for a       */
+/* future setpoint-dependent formula (bigger setpoint -> bigger offset).         */
+#define ECO_SETPOINT_OFFSET_C100 300
+
+/* Wireless climate sensor (WS) freshness window: while the last WS temperature   */
+/* report is younger than this, the WS sensor drives BOTH the relay and the big   */
+/* digits; after that the thermostat falls back to the configured probes          */
+/* (IN/OU/AL) and BOTH WS values count as invalid. Seconds.                       */
+#define WS_FRESH_SECS         300
+
+/* AL "Er" alternation: with one probe of the AL pair dead the big digits       */
+/* alternate between the survivor's temperature and "Er" so the working value   */
+/* stays visible. Phase lengths in 100 ms ticks (main-loop grid).               */
+#define TEMP_ER_TEMP_10MS_TICKS 500    /* temperature phase, 5.0 s              */
+#define TEMP_ER_WARN_10MS_TICKS 150    /* "Er" phase, 1.5 s                     */
+
+/*** 8. NTC power (none: both dividers permanently powered from VDD) *****************/
+/* Owner-verified on this board: one end of BOTH probes (internal and external) is tied  */
+/* to VDD permanently - there is no sensor power switch. The r02 "sensor power" stub    */
+/* (NTC_EXT_SW_PIN on P4.4 + temp_power() in sensor_ntc.c) is removed: P4.4 is the DOWN */
+/* touch key on this board (probed: pin 12 -> R21 -> BTN_DOWN).                          */
+
+/*** 9. Optional code switches (ROM size) ***********************************************************/
+/* The linker does no dead-code elimination, so helpers that nothing calls still occupy ROM.        */
+#define SYSCLK_EXTRA_FUNCS  0   /* Sys_Clk_Set_IRCL/XOSCL/PLL/TFRC/XOSCH helpers                    */
+                                /* (the real crystal wait/fallback lives in RTC_Init, rtc.c)        */
+#define SENSOR_LEGACY_READ  0   /* Temp_ReadC100() wrapper, superseded by Temp_ReadC100Checked()    */
+#define FACTORY_RESET_TEST_EN 0 /* 1 = OFF+DOWN only BLINKS the NET symbol: no LNK_CMD_FACTORY_     */
+                                /* RESET (0x27) is sent and the steady-NET guard in Net_Flash() is  */
+                                /* lifted, so the gesture works while the module STAYS joined.      */
+                                /* 0 = full provisioning functionality (send + steady guard).       */
+
+/*** 10. LCD bring-up test (LCD board 002_WF1) *****************************************************/
+/* 1 = bench mapping build: after clock/WDT init, main() jumps into LCD_TestMain() (src/hw_test.c),*/
+/* which drives the internal LCD driver (36-cell INDEX/LXDAT buffer) through a diagnostic cycle:     */
+/* cell 23 alone (the pad28 column), controlled fills (all 0 over cells 0..23, all 0 over 0..35,     */
+/* rows COM0..3 everywhere, blank, all on), a per-COM-row walk, a per-column walk and the current    */
+/* semantic-group holds. One video of a cycle IS the (cell, row) map plus the check that pad28 is   */
+/* the 24th column (P04F = 4 / SEG35). Nothing else runs (no link, no keys, no UI). Default 0 =     */
+/* firmware.                                                                                         */
+#define LCD_TEST_EN     0
+
+/*** 11. Clock measurement bench (logic analyzer on J1) **********************************************/
+/* 1 = short self-contained test (src/hw_test.c): main() jumps into Clock_TestMain() and never    */
+/* returns. P3.0 (J1 pin 2, GND = J1 pin 1) carries a repeating ~3 s cycle, in this order: 300 ms    */
+/* marker, a UART0 TX burst at 115200 (reload 0xFFFF => line rate = f_SYS / 32, the absolute anchor */
+/* for f_SYS and for the real link baud), 300 ms marker, a Delay_ms(1) toggle phase (exact Delay_ms  */
+/* scale error), 300 ms marker, a raw toggle loop with no delay calls (f_SYS cross-check). The      */
+/* >=300 ms markers separate the phases in the trace, so a capture of a few seconds is enough.      */
+/* Intended for fx2lafw-class analyzers: keep the sample rate at 1 MS/s.                             */
+/* Takes priority over LCD_TEST_EN in main(). Default 0 = firmware.                                  */
+#define CLOCK_TEST_EN    0
+
+/*** 12. Brightness sweep bench *********************************************************************/
+/* 1 = level-sweep bench (src/hw_test.c): main() jumps into Bright_TestMain() and never returns. */
+/* The glass shows the UI level under test as a big digit while Bright_Apply walks 1..8 (screen    */
+/* backlight + power-key LED, the production fan-out), dwelling BRIGHT_TEST_SECS seconds per level */
+/* and looping forever - one video records the whole ladder and the screen/LED synchronization.   */
+/* P3.0 = J1 pin 2 (backlight), P3.2 = R18 -> LED (power key, hardware PWM7). CLOCK_TEST_EN and    */
+/* LCD_TEST_EN take priority over it in main(). Default 0 = firmware.                              */
+#define BRIGHT_TEST_EN    0
+#define BRIGHT_TEST_SECS  2           /* dwell per level                        */
+
+/*** 13. Photo/documentation mode ***********************************************************/
+/* 1 = photo freeze (src/hw_test.c: main() jumps into Photo_ModeMain and never returns): the panel and the */
+/* power LED sit at FULL brightness, every segment of the glass is lit, and the device     */
+/* freezes in that state until the next reset - for documentation photos. No WDT, no link  */
+/* traffic. Priority below CLOCK_TEST_EN / LCD_TEST_EN / BRIGHT_TEST_EN in main().         */
+/* Default 0 = firmware.                                                                    */
+#define PHOTO_TEST_EN     0
+/****************************************************************************************************/
+#endif
