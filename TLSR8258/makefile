@@ -213,7 +213,7 @@ $(BIN_FILE): $(ELF_FILE)
 	@cp $(BIN_FILE) $(BIN_PATH)/$(PROJECT_NAME)_$(VERSION_RELEASE).$(VERSION_BUILD)_ZT3L.bin
 	@echo 'Create zigbee OTA file'
 	@python3 $(MAKE_OTA) -t $(PROJECT_NAME)_ZT3L -s "Slacky-DIY OTA" $(BIN_PATH)/$(PROJECT_NAME)_$(VERSION_RELEASE).$(VERSION_BUILD)_ZT3L.bin 
-	@python3 $(MAKE_OTA) -t old_tuya_thermostat_r01-r02_ZT3L -i 913 -v0x65653001 -s "Slacky-DIY OTA" $(BIN_PATH)/$(PROJECT_NAME)_$(VERSION_RELEASE).$(VERSION_BUILD)_ZT3L.bin   
+	@python3 $(MAKE_OTA) -t old_tuya_thermostat_r01_ZT3L -i 913 -v0x65653001 -s "Slacky-DIY OTA" $(BIN_PATH)/$(PROJECT_NAME)_$(VERSION_RELEASE).$(VERSION_BUILD)_ZT3L.bin   
 	@echo 'Create zigbee Tuya OTA file'
 	@python3 $(MAKE_OTA_TUYA) -m 4417 -t 54179 -o $(BIN_PATH)/1141-d3a3-1111114b-$(PROJECT_NAME)_ZT3L.zigbee $(BIN_FILE) $(BOOT_FILE)
 	@echo ' '
