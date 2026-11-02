@@ -24,7 +24,7 @@
 ### Слаботочная плата термостата с экраном
 
 <div align="center">
-<img src="../doc/images/board_bottom.jpg" alt="Слаботочная плата, вид снизу" width="20%" height="auto" />
+<img src="../doc/images/board_bottom.jpg" alt="Слаботочная плата, вид снизу" />
 <p align="center"><em>Слаботочная плата: вид снизу</em></p>
 </div>
 
