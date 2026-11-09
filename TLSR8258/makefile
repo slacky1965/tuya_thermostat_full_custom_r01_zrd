@@ -66,6 +66,7 @@ INCLUDE_PATHS := \
 -I./common \
 -I../include_common
  
+DEBUG ?= ON
 
 LS_FLAGS := $(SDK_PATH)/platform/boot/8258/boot_8258.link
 
@@ -100,7 +101,8 @@ endif
 GCC_FLAGS += \
 $(DEVICE_TYPE) \
 $(MCU_TYPE) \
--DBOOT_SIZE=$(BOOT_SIZE)
+-DBOOT_SIZE=$(BOOT_SIZE) \
+-DUART_PRINTF_MODE=$(DEBUG)
 
 OBJ_SRCS := 
 S_SRCS := 
