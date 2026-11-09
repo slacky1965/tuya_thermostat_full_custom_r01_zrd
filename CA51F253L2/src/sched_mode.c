@@ -97,17 +97,30 @@ void Sched_Set_Store(void) {
 
 void Sched_Set_Draw(void) {
 	if(sched_hub) {
-		/* day-select hub: only the weekday icon, blinking as the cursor */
-		Lcd_Clear();
+		/* day-select hub (stock composition): the house (roof + walls, no     */
+		/* thermometer), Set (a schedule value is being set up), NET when      */
+		/* joined, the blinking weekday cursor and "--" in the value digits    */
+		/* (no slot temperature to show yet). Buffer clear only: the final     */
+		/* Flush paints the frame in one go (Lcd_Clear would flash a blank     */
+		/* frame twice a second while the cursor blinks).                      */
+		Lcd_ClearBuf();
+		Lcd_SymSet(SYM_HOME, 1);
+		Lcd_SymSet(SYM_THERMO, 0);
+		Lcd_SymSet(SYM_SET, 1);
+		Lcd_SymSet(SYM_NET, (uint8_t)(Link_NetStatus() == LNK_NET_CONNECTED));
+		Lcd_DigitBig(0, CH_MINUS);          /* "--" while no slot is edited      */
+		Lcd_DigitBig(1, CH_MINUS);
 		Lcd_Weekday(clk_blink ? 0 : (uint8_t)(sched_day + 1));
 		Lcd_Flush();
 		return;
 	}
-	Lcd_Clear();
+	Lcd_ClearBuf();                     /* buffer only: one Flush per frame     */
+	Lcd_SymSet(SYM_HOME, 1);
+	Lcd_SymSet(SYM_THERMO, 0);
+	Lcd_SymSet(SYM_SET, 1);
+	Lcd_SymSet(SYM_NET, (uint8_t)(Link_NetStatus() == LNK_NET_CONNECTED));
 	Lcd_Weekday((uint8_t)(sched_day + 1));           /* current day (Mon=1)   */
 	Lcd_SymSet((uint8_t)(SYM_SP1 + sched_slot), 1);  /* current slot SP1..SP6 */
-	Lcd_SymSet(SYM_HOME, 0);
-	Lcd_SymSet(SYM_SET, 0);
 	Lcd_Clock(sched_h, sched_m, 1, 1);          /* ':' steady            */
 	Lcd_DigitIdx(4, (uint8_t)(sched_h / 10));      /* leading zeros visible */
 	Lcd_DigitIdx(6, (uint8_t)(sched_m / 10));
@@ -181,9 +194,20 @@ void Sched_Set_Next(void) {
 	}
 	/* last slot of the day: save the finished day and return to the day-      */
 	/* select hub with the NEXT day preselected (UP/DOWN then jump anywhere).  */
-	if(sched_changed) {
-		if(Settings_Persist()) Sched_SendPending();
-		else sched_send_mask = 0;
+	/* Normalize the day BEFORE it leaves the editor: ascending by time with   */
+	/* empties last is the canonical form for the slot icons, flash and the    */
+	/* ZT3L/z2m copy. A re-ordered day must be persisted and reported even     */
+	/* when this session edited nothing (sched_changed = 0) - hence the sorted */
+	/* flag joining the persist/send condition. Covers the "Next to the end    */
+	/* of Sunday" path too: this block runs before Sched_Set_Exit().           */
+	{
+		uint8_t sorted = Sched_DaySort(Sched_DayRow(sched_day));
+
+		if(sorted) sched_send_mask |= (uint8_t)(1U << sched_day);
+		if(sched_changed || sorted) {
+			if(Settings_Persist()) Sched_SendPending();
+			else sched_send_mask = 0;
+		}
 	}
 	if(sched_day < 6) {
 		sched_day++;
@@ -202,9 +226,53 @@ void Sched_Set_Exit(void) {
 	Thermo_Apply();
 }
 
-/* Return the schedule row (6 entries) for a weekday 1..7 (Mon=1, matches RTC).  */
-static const schedule_t xdata *Sched_Day(uint8_t week) {
-	return Sched_DayRow((uint8_t)((week >= 1 && week <= 6) ? (week - 1) : 6));
+/* The network replaced a whole day. The link handler must NOT close the setup */
+/* itself: h_sched runs from Uart1_Poll (Link_OnFrame -> dispatch -> h_sched), */
+/* and Clock_Set_Exit/Thermo_Apply on top of that chain overflowed the 8051    */
+/* stack - observed as a reboot while the clock-set day was blinking. The      */
+/* handler only records which days actually changed; Sched_NetPreemptPoll()    */
+/* performs the close from the main loop, at key-handler depth.                */
+static uint8_t xdata sched_net_mask;    /* network-written days, close pending */
+
+void Sched_NetPreempt(uint8_t day) {
+	sched_net_mask |= (uint8_t)(1U << day);
+}
+
+/* Deferred close of the clock/schedule setup after a network day write (see    */
+/* Sched_NetPreempt). A write that really changed the stored day abandons the  */
+/* WHOLE clock/schedule setup (owner rule): the pending clock edit is          */
+/* discarded (only the network data is kept), the day-select hub closes (there */
+/* is nothing to protect there), and a same-day editor closes WITHOUT Store -  */
+/* its slot registers and sched_slot cursor no longer describe the stored      */
+/* image (the array was overwritten and possibly re-ordered), so a late Store  */
+/* would write stale registers over the freshly applied day. A different day's */
+/* editor is left untouched. Local edits of the preempted context are          */
+/* intentionally dropped - the network value wins (and it is already in flash, */
+/* saved by h_sched); days edited earlier in the session were persisted when   */
+/* they were closed.                                                           */
+void Sched_NetPreemptPoll(void) {
+	uint8_t mask = sched_net_mask;
+
+	if(!mask) {
+		return;
+	}
+	sched_net_mask = 0;
+	if(clk_set != CLK_SET_OFF) {
+		Clock_Set_Exit(0);              /* drop the pending clock edit        */
+		return;
+	}
+	if(sched_set == SCHED_SET_OFF) {
+		return;                         /* no schedule editor open            */
+	}
+	if(sched_hub) {
+		sched_changed = 0;              /* network wins; the hub owns no slot */
+		Sched_Set_Exit();               /* registers, so plain close          */
+		return;
+	}
+	if(mask & (uint8_t)(1U << sched_day)) {
+		sched_changed = 0;              /* the day now comes from the network */
+		Sched_Set_Exit();               /* sched_set=OFF, icons clear, reapply */
+	}
 }
 
 /* A schedule entry counts as used only if it is sane: not the explicit empty   */
@@ -223,42 +291,133 @@ uint8_t Sched_EntryValid(const schedule_t xdata *e) {
 	return 1;
 }
 
+/* The schedule transition in force RIGHT NOW - the single source for both the  */
+/* active setpoint (control) and the lit slot house (display), so the two can   */
+/* never disagree. Weekly-curve rule (matches factory thermostats: a period     */
+/* holds until the next scheduled transition, the curve has no holes):          */
+/*   - today's last valid transition with minute <= now (greatest minute wins,  */
+/*     storage order is irrelevant);                                           */
+/*   - none yet (early morning) or today empty -> walk back up to 7 days and   */
+/*     take the LAST transition of the most recent day that has one. All of a  */
+/*     past day is in the past, so its greatest minute IS the most recent one;  */
+/*     d=7 lands on today's row again, which then reads as last week's         */
+/*     occurrence - also in the past, correct for a weekly-repeating program;   */
+/*   - the whole week empty -> returns 0, the caller falls back to the manual   */
+/*     setpoint (schedule never configured - safety net, not a hidden          */
+/*     override of a programmed night).                                        */
+/* Fills the day index (0..6, Mon=0) and the slot index (0..LNK_SCHED_N-1).    */
+uint8_t Sched_FindActive(uint8_t xdata *day_out, uint8_t xdata *idx_out) {
+	XDATA_TMP(uint8_t, h);
+	XDATA_TMP(uint8_t, m);
+	XDATA_TMP(uint8_t, wd);
+	const schedule_t xdata *row;
+	uint16_t now;
+	uint16_t best_min;
+	uint8_t day0;
+	uint8_t d;
+	uint8_t i;
+	int8_t best;
+
+	RTC_ReadTime(&h, &m, 0, &wd);
+	day0 = (wd >= 1 && wd <= 7) ? (uint8_t)(wd - 1) : 6;
+	now = (uint16_t)h * 60 + m;
+
+	/* today: last transition at or before the clock */
+	row = Sched_DayRow(day0);
+	best = -1;
+	best_min = 0;
+	for(i = 0; i < LNK_SCHED_N; i++) {
+		if(!Sched_EntryValid(&row[i])) continue;
+		if(row[i].minute > now) continue;
+		if(best < 0 || row[i].minute >= best_min) {
+			best_min = row[i].minute;
+			best = (int8_t)i;
+		}
+	}
+	if(best >= 0) {
+		*day_out = day0;
+		*idx_out = (uint8_t)best;
+		return 1;
+	}
+
+	/* walk back up to 7 days: last transition of the day (all in the past)   */
+	for(d = 1; d <= 7; d++) {
+		uint8_t prev = (day0 >= d) ? (uint8_t)(day0 - d)
+		                           : (uint8_t)(day0 + 7 - d);
+
+		row = Sched_DayRow(prev);
+		best = -1;
+		best_min = 0;
+		for(i = 0; i < LNK_SCHED_N; i++) {
+			if(!Sched_EntryValid(&row[i])) continue;
+			if(best < 0 || row[i].minute >= best_min) {
+				best_min = row[i].minute;
+				best = (int8_t)i;
+			}
+		}
+		if(best >= 0) {
+			*day_out = prev;
+			*idx_out = (uint8_t)best;
+			return 1;
+		}
+	}
+	return 0;
+}
+/********************************************************************************/
+/* Sort one weekly day for display and storage: ascending by transition time,  */
+/* unused slots (0xFFFF = larger than any valid minute) end up last. Insertion */
+/* sort - six elements need no bookkeeping, and it is stable, so equal times   */
+/* keep their storage order. Returns 1 when the order actually changed: the    */
+/* caller must then persist the day and report it to ZT3L - the peer copy and  */
+/* the z2m view would otherwise keep the old slot positions.                   */
+uint8_t Sched_DaySort(schedule_t xdata *day) {
+	uint8_t i;
+	uint8_t j;
+	uint8_t moved = 0;
+
+	for(i = 1; i < LNK_SCHED_N; i++) {
+		uint16_t key_min = day[i].minute;
+		int16_t  key_temp = day[i].temperature;
+
+		for(j = i; j > 0 && day[j - 1].minute > key_min; j--) {
+			day[j] = day[j - 1];
+			moved = 1;
+		}
+		day[j].minute   = key_min;
+		day[j].temperature = key_temp;
+	}
+	return moved;
+}
+
 /* Setpoint that applies NOW:
-   - schedule bit (PROG_MODE_SCHEDULE): the transition with the GREATEST
-     transTime <= current minutes, regardless of storage order (unused entries
-     are skipped, see Sched_EntryValid). Before the day's first transition there
-     is no match, so fall back to occupiedHeatingSetpoint.
-   - manual (schedule bit clear): occupiedHeatingSetpoint.
+   - schedule bit (PROG_MODE_SCHEDULE): whatever Sched_FindActive resolves
+     (today's last passed transition, else the last transition of the most
+     recent programmed day - see the weekly-curve rule above);
+   - manual (schedule bit clear), or the whole week empty: occupiedHeatingSetpoint.
    - eco bit (PROG_MODE_ECO): a fixed control-only offset is subtracted before
      the clamp below, so Eco never rewrites the stored values.
    Every path then passes the same use-time clamp into [min..max]: the stored
    values keep their ABS-valid image (data != policy), only CONTROL is bounded.
    This also restores the safety-cut invariant: with SP_used <= max the normal
    OFF point (SP_used + deadBand) always stays below the trip
-   (max + ABS_MAX_DEADBAND + 1 degC) by at least the trip margin.          */
+   (max + ABS_MAX_DEADBAND + 1 degC) by at least the trip margin.
+   The resolved slot is published 1-based into sched_slot_now (0 = none) for
+   the display: same resolve, so the lit house is always the slot feeding the
+   relay.                                                          */
 int16_t Sched_ActiveSetpoint(void) {
-	XDATA_TMP(uint8_t, h);
-	XDATA_TMP(uint8_t, m);
-	XDATA_TMP(uint8_t, w);
-	uint16_t now;
-	uint16_t best = 0;
-	uint8_t  found = 0;
-	const schedule_t xdata *day;
+	/* day/idx written through pointers: XDATA_TMP mandatory (see screen.c     */
+	/* Sched_SlotApply - plain stack automatics gave garbage and an OOB day).  */
+	XDATA_TMP(uint8_t, day);
+	XDATA_TMP(uint8_t, idx);
+	const schedule_t xdata *row;
 	int16_t  t = settings.occupiedHeatingSetpoint;
-	uint8_t  i;
 
+	sched_slot_now = 0;             /* 0 = no transition owns "now" yet      */
 	if(settings.progMode & PROG_MODE_SCHEDULE) {
-		RTC_ReadTime(&h, &m, 0, &w);
-		now = (uint16_t)h * 60 + m;
-		day = Sched_Day(w);
-		for(i = 0; i < LNK_SCHED_N; i++) {
-			if(!Sched_EntryValid(&day[i])) continue;
-			if(day[i].minute > now) continue;
-			if(!found || day[i].minute >= best) {
-				best  = day[i].minute;
-				t     = day[i].temperature;
-				found = 1;
-			}
+		if(Sched_FindActive(&day, &idx)) {
+			row = Sched_DayRow(day);
+			t = row[idx].temperature;
+			sched_slot_now = (uint8_t)(idx + 1);   /* 1-based, feeds the display */
 		}
 	}
 	/* Economy (ZCL POM bit 2): fixed offset on CONTROL only. Applied BEFORE the  */
@@ -288,3 +447,8 @@ int16_t Sched_ActiveSetpoint(void) {
 /* SCHEDULE -> the running weekly-schedule transition (see Sched_ActiveSetpoint). */
 /* xdata initialiser dropped: xdata_clear() zeroes it, the 1 s tick recomputes.   */
 int16_t xdata target_setpoint /* = OCCUPIED_HEATSETPOINT_DEF */;
+
+/* 1-based index of the transition Sched_FindActive just resolved (0 = none).   */
+/* 1-based so xdata_clear() reads as "none". Published by Sched_ActiveSetpoint  */
+/* from the resolver result (single walk - the display draws from this cache).  */
+uint8_t xdata sched_slot_now;

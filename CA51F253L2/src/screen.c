@@ -262,19 +262,18 @@ bit ext_ok;      /* 1 = external probe present (SYM_HEATER)              */
 /* symbol on steady (see Net_Flash_Stop()/Net_Set_Steady() below).             */
 /* (NET_HOLD_10MS_TICKS stays in main.c: it arms down_arm in the key drain.)   */
 
-/* Light the schedule-slot house of the period that owns "now": the last of    */
-/* today's valid transitions at or before the clock; every house is off in     */
-/* manual mode or before the first transition of the day. The editing screens   */
-/* (sched_mode) draw the edited slot themselves - this helper only runs while   */
-/* no mode owns the screen.                                                     */
+/* Light the schedule-slot house of the transition that owns "now" under the   */
+/* weekly-curve rule: today's last passed transition, else - before the day's  */
+/* first transition or on an empty day - the last transition of the most       */
+/* recent programmed day (up to 7 days back; see Sched_FindActive). The index  */
+/* comes from Sched_ActiveSetpoint's resolve of the shared resolver (it        */
+/* refreshes sched_slot_now as a side effect and shares the greatest-minute    */
+/* criterion with CONTROL, so the lit house is always the slot feeding the     */
+/* relay). Encoding: 1-based, 0 = none, which survives xdata_clear(). All six  */
+/* houses are off in MANUAL mode and when the whole week is empty. The         */
+/* schedule editor draws its own blinking slot.                                */
 void Sched_SlotApply(void) {
-	XDATA_TMP(uint8_t, h);
-	XDATA_TMP(uint8_t, m);
-	XDATA_TMP(uint8_t, wd);
-	const schedule_t xdata *row;
-	uint16_t now_min;
 	uint8_t i;
-	int8_t best;
 
 	for(i = 0; i < LNK_SCHED_N; i++) {
 		Lcd_SymSet((uint8_t)(SYM_SP1 + i), 0);
@@ -282,15 +281,10 @@ void Sched_SlotApply(void) {
 	if(!(settings.progMode & PROG_MODE_SCHEDULE)) {
 		return;
 	}
-	RTC_ReadTime(&h, &m, 0, &wd);       /* wd = 1..7, Mon=1                       */
-	row = Sched_DayRow((uint8_t)((wd >= 1 && wd <= 7) ? wd - 1 : 6));
-	now_min = (uint16_t)h * 60 + m;
-	best = -1;
-	for(i = 0; i < LNK_SCHED_N; i++) {
-		if(!Sched_EntryValid(&row[i])) continue;
-		if(row[i].minute <= now_min) best = (int8_t)i;
+	(void)Sched_ActiveSetpoint();      /* refresh the cached index for this paint */
+	if(sched_slot_now) {
+		Lcd_SymSet((uint8_t)(SYM_SP1 + sched_slot_now - 1), 1);
 	}
-	if(best >= 0) Lcd_SymSet((uint8_t)(SYM_SP1 + best), 1);
 }
 #define NET_FLASH_SECS   90                  /* 1.5 minutes                              */
 #define NET_FLASH_TICKS  30                  /* 300 ms per half-phase                    */
