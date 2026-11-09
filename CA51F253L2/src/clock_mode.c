@@ -58,10 +58,11 @@ void Clock_Set_Enter(void) {
 	clk_blink_tick = BTN_Tick10ms();
 	mode_idle_tick = BTN_Tick10ms();    /* arm the 20 s idle exit    */
 	clock_colon = 1;
-	Lcd_SymSet(SYM_HOME, 0);            /* leave the temperature view */
+	/* Keep the working screen as it is: the house with the thermometer stays  */
+	/* (the big digits still show the measured temperature), only the Set and  */
+	/* the frozen %RH window leave.                                            */
+	Lcd_SymSet(SYM_HOME, 1);
 	Lcd_SymSet(SYM_SET, 0);
-	/* a frozen %RH window (its expiry sits in the mode 'else') must not leak   */
-	/* onto the clock-set screen for the whole session                          */
 	Lcd_SymSet(SYM_HUMID, 0);
 	Clock_Set_Draw();
 }

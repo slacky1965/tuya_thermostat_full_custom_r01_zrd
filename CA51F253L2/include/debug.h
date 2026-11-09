@@ -11,7 +11,9 @@
 #define ON              1
 #define OFF             0
 
-#define UART_DEBUG      OFF                 /* bench: debug lines go to the ZT3L  */
+#ifndef UART_DEBUG
+#define UART_DEBUG      ON                 /* bench: debug lines go to the ZT3L  */
+#endif
         /* TRANSPORT (LCD board 002_WF1): debug lines go to the ZT3L peer as a    */
         /* fire-and-forget Report (LNK_CMD_DEBUG_LOG 0xE0, see debug.c); UART0 is */
         /* NOT used - P3.0/P3.1 are the BACKLIGHT control (P3.0, via Q3) and the  */

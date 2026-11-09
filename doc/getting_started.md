@@ -39,13 +39,12 @@
 | Инструмент | Обязательность |
 | --- | --- |
 | [clang](https://github.com/devbis/llvm-mcs51/releases) | обязательно |
-| [SDCC](https://sdcc.sourceforge.net/snap.php) | опционально, по умолчанию сборка для **CA51F253L2** сделана на clang |
 | [Telink IoT Studio](https://doc.telink-semi.cn/tools/telink_iot_studio/TelinkIoTStudio_V2025.2.zip) | обязательно |
 | [Git for Windows](https://git-scm.com/install/windows?ref=faun) | рекомендуется |
 
 В системе должен быть инсталлирован **python**.
 
-Если нужно только прошить **CA51F253L2**, то **SDCC** и **Telink IoT Studio** можно не скачивать.
+Если нужно только прошить **CA51F253L2**, то **Telink IoT Studio** можно не скачивать.
 
 ### Сборка
 
@@ -156,7 +155,7 @@ $ make flash-cachip
 <summary>Пример вывода команды <b>make flash-cachip</b></summary>
 
 ```text
-py ./tools/cachip-isp-serial_new.py COM4 upload ../bin/osrctherm_r01_v1.01_CA51F253L2.bin
+py ./tools/cachip-isp-serial_new.py COM4 upload ../bin/osrctherm_r01_v1.02_CA51F253L2.bin
 using embedded phase1 bootloader (642 bytes)
 opening serial port COM4
 trying ISP-mode activation, waiting up to 15 seconds (if power is already applied, pulse RESET pin 2 low->high !)
@@ -184,7 +183,7 @@ requesting access to flash with designated chipID
 got mcu success response
 requesting onchip flash memory partial 243 sectors erase
 got mcu success response
-uploading from ../bin/osrctherm_r01_v1.01_CA51F253L2.bin to onchip memory
+uploading from ../bin/osrctherm_r01_v1.02_CA51F253L2.bin to onchip memory
 written 31010/31010 bytes (100%)
 upload done: 31010 bytes written to onchip flash
 sending session end cmd
